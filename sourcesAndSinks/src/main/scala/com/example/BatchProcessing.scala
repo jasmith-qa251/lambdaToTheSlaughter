@@ -131,7 +131,7 @@ object BatchProcessing {
         // Replace view with DF, show new data.
         outlierDF.createOrReplaceTempView("memory_processed")
         println("Processed data:")
-        spark.sql("SELECT * FROM memory_processed").show()
+        spark.sql("SELECT * FROM memory_processed Order By userid DESC").show()
 
         // Restart timer from current time.
         t0_process = t1_process
@@ -143,7 +143,7 @@ object BatchProcessing {
         // Replace view with DF, show new data.
         outlierDF.createOrReplaceTempView("hive_temporary")
         println("Persisted data:")
-        spark.sql("SELECT * FROM hive_temporary").show()
+        spark.sql("SELECT * FROM hive_temporary Order By userid DESC").show()
 
         // Restart timer from current time.
         t0_persist = t1_persist
