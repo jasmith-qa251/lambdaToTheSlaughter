@@ -1,9 +1,8 @@
 package com.example
 
-import net.manub.embeddedkafka.EmbeddedKafka
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.streaming.Trigger
-import org.apache.spark.sql.types.{FloatType, StringType, StructField, StructType}
+import org.apache.spark.sql.types._
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
 object BatchProcessing {
@@ -15,9 +14,9 @@ object BatchProcessing {
   var PERSIST_INTERVAL: Long = _
 
   val SCHEMA = StructType(Seq(
-    StructField("time", StringType),
-    StructField("reporting_unit", StringType),
-    StructField("turnover", FloatType)
+    StructField("userid", StringType, nullable = true),
+    StructField("username", StringType, nullable =  true),
+    StructField("averageweeklyhouseholdspend", IntegerType, nullable =  true)
   ))
 
   val spark: SparkSession = SparkSession
@@ -65,16 +64,13 @@ object BatchProcessing {
     if (df.head(1).isEmpty) df
     else df
       .withColumn("average", lit(df.agg(avg(column)).head.getDouble(0)))
-      .withColumn("outlier_flag", when(col(column) >= col("average") * 2, "outlier").otherwise(null))
+      .withColumn("outlier_flag", when(col(column) >= col("average"), "Above Average").otherwise("Below Average"))
       .drop("average")
   }
 
   def main(args: Array[String]): Unit = {
 
     setCLIArgs(args)
-
-    // TODO: REMOVE
-    EmbeddedKafka.start()
 
     // Read Kafka topic and write to memory table.
     spark
@@ -92,18 +88,6 @@ object BatchProcessing {
       .queryName("memory_raw")
       .trigger(Trigger.ProcessingTime(1000))
       .start()
-
-    // TODO: REMOVE
-    // Read JSON file and write to Kafka topic.
-    spark
-      .read
-      .json("data.json")
-      .selectExpr("to_json(struct(*)) AS value")
-      .write
-      .format("kafka")
-      .option("kafka.bootstrap.servers", SERVER)
-      .option("topic", KAFKA_TOPIC)
-      .save()
 
     // Store initial time for determining intervals.
     var t0_process = System.currentTimeMillis()
@@ -150,5 +134,6 @@ object BatchProcessing {
 
       // Delay next loop.
       Thread.sleep(PROCESS_INTERVAL)
-    }  }
+    }
+  }
 }
