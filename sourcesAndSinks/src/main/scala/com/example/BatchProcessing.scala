@@ -65,7 +65,7 @@ object BatchProcessing {
     if (df.head(1).isEmpty) df
     else df
       .withColumn("average", lit(df.agg(avg(column)).head.getDouble(0)))
-      .withColumn("outlier_flag", when(col(column) >= col("average") * 2, "outlier").otherwise("-"))
+      .withColumn("outlier_flag", when(col(column) >= col("average") * 2, "outlier").otherwise(null))
       .drop("average")
   }
 
@@ -75,18 +75,6 @@ object BatchProcessing {
 
     // TODO: REMOVE
     EmbeddedKafka.start()
-
-    // TODO: REMOVE
-    // Read JSON file and write to Kafka topic.
-    spark
-      .read
-      .json("data.json")
-      .selectExpr("to_json(struct(*)) AS value")
-      .write
-      .format("kafka")
-      .option("kafka.bootstrap.servers", SERVER)
-      .option("topic", KAFKA_TOPIC)
-      .save()
 
     // Read Kafka topic and write to memory table.
     spark
@@ -105,6 +93,18 @@ object BatchProcessing {
       .trigger(Trigger.ProcessingTime(1000))
       .start()
 
+    // TODO: REMOVE
+    // Read JSON file and write to Kafka topic.
+    spark
+      .read
+      .json("data.json")
+      .selectExpr("to_json(struct(*)) AS value")
+      .write
+      .format("kafka")
+      .option("kafka.bootstrap.servers", SERVER)
+      .option("topic", KAFKA_TOPIC)
+      .save()
+
     // Store initial time for determining intervals.
     var t0_process = System.currentTimeMillis()
     var t0_persist = System.currentTimeMillis()
@@ -115,9 +115,10 @@ object BatchProcessing {
       // Update timer each loop.
       val t1_process = System.currentTimeMillis()
       val t1_persist = System.currentTimeMillis()
+      println(s"<< BATCH KICKOFF @ ${t1_process}ms >>\n")
 
       // Read latest raw data.
-      println("Raw data at system time " + t1_process + ":")
+      println("Raw data:")
       spark.sql("SELECT * FROM memory_raw").show()
 
       // Process raw data.
@@ -128,7 +129,7 @@ object BatchProcessing {
 
         // Replace view with DF, show new data.
         outlierDF.createOrReplaceTempView("memory_processed")
-        println("Processed data at system time " + t1_process + ":")
+        println("Processed data:")
         spark.sql("SELECT * FROM memory_processed").show()
 
         // Restart timer from current time.
@@ -140,16 +141,15 @@ object BatchProcessing {
 
         // Replace view with DF, show new data.
         outlierDF.createOrReplaceTempView("hive_temporary")
-        println("Persisted data at system time " + t1_persist + ":")
+        println("Persisted data:")
         spark.sql("SELECT * FROM hive_temporary").show()
 
         // Restart timer from current time.
         t0_persist = t1_persist
       }
 
-      // Delay next loop by 5 seconds.
+      // Delay next loop.
       Thread.sleep(PROCESS_INTERVAL)
-      println("<<< NEW BATCH KICKOFF >>>")
     }
   }
 }
