@@ -1,100 +1,155 @@
 package com.example
 
 import net.manub.embeddedkafka.EmbeddedKafka
-import org.apache.spark.sql.functions.{avg, col, when}
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.streaming.Trigger
+import org.apache.spark.sql.types._
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
 object BatchProcessing {
+
+  var SERVER: String = _
+  var KAFKA_TOPIC: String = _
+  var COLUMN_TO_VALIDATE: String = _
+  var PROCESS_INTERVAL: Long = _
+  var PERSIST_INTERVAL: Long = _
+
+  val SCHEMA = StructType(Seq(
+    StructField("userid", StringType, true),
+    StructField("username", StringType, true),
+    StructField("averageweeklyhouseholdspend", IntegerType, true)
+  ))
 
   val spark: SparkSession = SparkSession
     .builder()
     .master("local[*]")
     .appName("batch process")
     .getOrCreate()
-  spark.sparkContext.setLogLevel("WARN")
+  spark.sparkContext.setLogLevel("ERROR")
+  import spark.implicits._
 
-  val SERVER = "localhost:6001"
-  val TOPIC_NAME = "test_topic"
+  /**
+    * Sets CLI arguments to static members.
+    *
+    * @param args Array[String] - CLI arguments
+    */
+  def setCLIArgs(args: Array[String]): Unit = {
+
+    try {
+
+      SERVER = args(0).trim
+      KAFKA_TOPIC = args(1).trim
+      COLUMN_TO_VALIDATE = args(2).trim
+      PROCESS_INTERVAL = args(3).toLong
+      PERSIST_INTERVAL = args(4).toLong
+    }
+    catch {
+
+      case _: Throwable =>
+        println("""Usage: [server String] [kafkaTopic String] [columnToValidate String] [processInterval Long] [persistInterval Long]""")
+        System.exit(1)
+    }
+  }
 
   /**
     * Adds flag when the row's target column is twice as large as the average for the whole.
     *
-    * @param table String - Spark table name to read from.
-    * @param column String - Name of column to search.
+    * @param table String - Spark table name to read from
+    * @param column String - Name of column to search
     * @return DataFrame
     */
   def findOutliers(table: String, column: String): DataFrame = {
 
-    spark
-      .sql("SELECT * FROM memory")
-      .withColumn("outlierFlag", when(col("target").geq(avg("target") * 2), "outlier").otherwise("-"))
+    val df = spark.sql("SELECT * FROM " + table)
+
+    if (df.head(1).isEmpty) df
+    else df
+      .withColumn("average", lit(df.agg(avg(column)).head.getDouble(0)))
+        .withColumn("averagemarker", when(col(column) >= col("average"), "Above Average").otherwise("-"))
+      //.withColumn("outlier_flag", when(col(column) >= col("average") * 2, "outlier").otherwise(null))
+      .drop("average")
   }
 
   def main(args: Array[String]): Unit = {
 
-    EmbeddedKafka.start()
+    setCLIArgs(args)
 
-    // Read Kafka topic and write to Kafka topic.
-    spark
-      .read
-      .json("data.json")
-      .write
-      .format("kafka")
-      .option("kafka.bootstrap.servers", SERVER)
-      .option("topic", TOPIC_NAME)
-      .save()
+//    // TODO: REMOVE
+//    EmbeddedKafka.start()
 
     // Read Kafka topic and write to memory table.
-    val kafkaDF = spark
+    spark
       .readStream
       .format("kafka")
       .option("kafka.bootstrap.servers", SERVER)
-      .option("subscribe", TOPIC_NAME)
+      .option("subscribe", KAFKA_TOPIC)
+      .option("startingOffsets", "earliest")
       .load()
-      .selectExpr("CAST(key AS STRING) key", "CAST(value AS STRING) value")
+      .selectExpr("CAST(value as STRING) value")
+      .as[String]
+      .select(from_json(col("value"), SCHEMA).as("data")).select("data.*")
       .writeStream
       .format("memory")
       .queryName("memory_raw")
+      .trigger(Trigger.ProcessingTime(1000))
       .start()
 
-    // Start timers.
-    var t0_process = System.nanoTime()
-    var t0_persist = System.nanoTime()
+//    // TODO: REMOVE
+//    // Read JSON file and write to Kafka topic.
+//    spark
+//      .read
+//      .json("data.json")
+//      .selectExpr("to_json(struct(*)) AS value")
+//      .write
+//      .format("kafka")
+//      .option("kafka.bootstrap.servers", SERVER)
+//      .option("topic", KAFKA_TOPIC)
+//      .save()
 
-    while (kafkaDF.isActive) {
+    // Store initial time for determining intervals.
+    var t0_process = System.currentTimeMillis()
+    var t0_persist = System.currentTimeMillis()
+    val continue = true // TODO: Set logic to stop if needed.
 
-      // Start timer in loop.
-      val t1_process = System.nanoTime()
-      val t1_persist = System.nanoTime()
-      val outlierDF = findOutliers("memory_raw", "target")
+    while (continue) {
+
+      // Update timer each loop.
+      val t1_process = System.currentTimeMillis()
+      val t1_persist = System.currentTimeMillis()
+      println(s"<< BATCH KICKOFF @ ${t1_process}ms >>\n")
+
+      // Read latest raw data.
+      println("Raw data:")
+      spark.sql("SELECT * FROM memory_raw").show()
+
+      // Process raw data.
+      val outlierDF = findOutliers("memory_raw", COLUMN_TO_VALIDATE)
 
       // If 10 seconds elapsed...
-      if (t1_process - t0_process > 10000000000L) {
+      if (t1_process - t0_process >= PROCESS_INTERVAL) {
 
-        outlierDF.createOrReplaceGlobalTempView("memory_processed")
-        t0_process = t1_process // Restart timer from current time.
+        // Replace view with DF, show new data.
+        outlierDF.createOrReplaceTempView("memory_processed")
+        println("Processed data:")
+        spark.sql("SELECT * FROM memory_processed").show()
+
+        // Restart timer from current time.
+        t0_process = t1_process
       }
 
-      // If 100 seconds elapsed...
-      if (t1_persist - t0_persist > 100000000000L) {
+      // If 50 seconds elapsed...
+      if (t1_persist - t0_persist >= PERSIST_INTERVAL) {
 
-        outlierDF.createOrReplaceGlobalTempView("hive_temporary")
-        t0_persist = t1_persist // Restart timer from current time.
+        // Replace view with DF, show new data.
+        outlierDF.createOrReplaceTempView("hive_temporary")
+        println("Persisted data:")
+        spark.sql("SELECT * FROM hive_temporary").show()
+
+        // Restart timer from current time.
+        t0_persist = t1_persist
       }
 
-      // Delay next loop by 5 seconds.
-      Thread.sleep(5000)
-    }
-
-    EmbeddedKafka.stop()
-
-    // Perform final refresh when stream stops.
-    val processedDF = findOutliers("memory", "target")
-    processedDF.createOrReplaceGlobalTempView("memory_processed")
-    processedDF.createOrReplaceGlobalTempView("hive_temporary")
-
-    spark.sql("SELECT * FROM memory_raw").show()
-    spark.sql("SELECT * FROM memory_processed").show()
-    spark.sql("SELECT * FROM hive_temporary").show()
-  }
+      // Delay next loop.
+      Thread.sleep(PROCESS_INTERVAL)
+    }  }
 }
