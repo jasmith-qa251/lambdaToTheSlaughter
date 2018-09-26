@@ -15,9 +15,9 @@ object BatchProcessing {
   var PERSIST_INTERVAL: Long = _
 
   val SCHEMA = StructType(Seq(
-    StructField("time", StringType, nullable = false),
-    StructField("reporting_unit", StringType, nullable = false),
-    StructField("turnover", FloatType, nullable = true)
+    StructField("time", StringType),
+    StructField("reporting_unit", StringType),
+    StructField("turnover", FloatType)
   ))
 
   val spark: SparkSession = SparkSession
@@ -29,10 +29,33 @@ object BatchProcessing {
   import spark.implicits._
 
   /**
+    * Sets CLI arguments to static members.
+    *
+    * @param args Array[String] - CLI arguments
+    */
+  def setCLIArgs(args: Array[String]): Unit = {
+
+    try {
+
+      SERVER = args(0).trim
+      KAFKA_TOPIC = args(1).trim
+      COLUMN_TO_VALIDATE = args(2).trim
+      PROCESS_INTERVAL = args(3).toLong
+      PERSIST_INTERVAL = args(4).toLong
+    }
+    catch {
+
+      case _: Throwable =>
+        println("""Usage: [server String] [kafkaTopic String] [columnToValidate String] [processInterval Long] [persistInterval Long]""")
+        System.exit(1)
+    }
+  }
+
+  /**
     * Adds flag when the row's target column is twice as large as the average for the whole.
     *
-    * @param table String - Spark table name to read from.
-    * @param column String - Name of column to search.
+    * @param table String - Spark table name to read from
+    * @param column String - Name of column to search
     * @return DataFrame
     */
   def findOutliers(table: String, column: String): DataFrame = {
@@ -48,20 +71,7 @@ object BatchProcessing {
 
   def main(args: Array[String]): Unit = {
 
-    try {
-
-      // Set CLI arguments to static members.
-      SERVER = args(0).trim
-      KAFKA_TOPIC = args(1).trim
-      COLUMN_TO_VALIDATE = args(2).trim
-      PROCESS_INTERVAL = args(3).toLong
-      PERSIST_INTERVAL = args(4).toLong
-    }
-    catch {
-      case _: Throwable =>
-        println("""Usage: [server String] [kafkaTopic String] [columnToValidate String] [processInterval Long] [persistInterval Long]""")
-        System.exit(1)
-    }
+    setCLIArgs(args)
 
     // TODO: REMOVE
     EmbeddedKafka.start()
@@ -95,21 +105,23 @@ object BatchProcessing {
       .trigger(Trigger.ProcessingTime(1000))
       .start()
 
-    // Start timers.
+    // Store initial time for determining intervals.
     var t0_process = System.currentTimeMillis()
     var t0_persist = System.currentTimeMillis()
-    var continue = true
+    val continue = true // TODO: Set logic to stop if needed.
 
     while (continue) {
 
-      // Start timer in loop.
+      // Update timer each loop.
       val t1_process = System.currentTimeMillis()
       val t1_persist = System.currentTimeMillis()
 
+      // Read latest raw data.
+      println("Raw data at system time " + t1_process + ":")
+      spark.sql("SELECT * FROM memory_raw").show()
+
       // Process raw data.
       val outlierDF = findOutliers("memory_raw", COLUMN_TO_VALIDATE)
-      println("Raw data at system time " + t1_process + ":")
-      outlierDF.show()
 
       // If 10 seconds elapsed...
       if (t1_process - t0_process >= PROCESS_INTERVAL) {
@@ -131,28 +143,13 @@ object BatchProcessing {
         println("Persisted data at system time " + t1_persist + ":")
         spark.sql("SELECT * FROM hive_temporary").show()
 
-        // Restart timer from current time, break loop.
+        // Restart timer from current time.
         t0_persist = t1_persist
-        continue = false
       }
 
       // Delay next loop by 5 seconds.
       Thread.sleep(PROCESS_INTERVAL)
       println("<<< NEW BATCH KICKOFF >>>")
     }
-
-    // TODO: REMOVE
-    EmbeddedKafka.stop()
-
-    // Perform final refresh when stream stops.
-    val processedDF = findOutliers("memory_raw", COLUMN_TO_VALIDATE)
-    processedDF.createOrReplaceTempView("memory_processed")
-    processedDF.createOrReplaceTempView("hive_temporary")
-
-    println("Final processed data:")
-    spark.sql("SELECT * FROM memory_processed").show()
-
-    println("Final persisted data:")
-    spark.sql("SELECT * FROM hive_temporary").show()
   }
 }
