@@ -150,6 +150,5 @@ object BatchProcessing {
 
       // Delay next loop.
       Thread.sleep(PROCESS_INTERVAL)
-    }
-  }
+    }  }
 }
