@@ -39,8 +39,8 @@ object BatchProcessing {
       SERVER = args(0).trim
       KAFKA_TOPIC = args(1).trim
       COLUMN_TO_VALIDATE = args(2).trim
-      PROCESS_INTERVAL = args(3).toLong
-      PERSIST_INTERVAL = args(4).toLong
+      PROCESS_INTERVAL = args(3).trim.toLong
+      PERSIST_INTERVAL = args(4).trim.toLong
     }
     catch {
 
@@ -51,7 +51,7 @@ object BatchProcessing {
   }
 
   /**
-    * Adds flag when the row's target column is twice as large as the average for the whole.
+    * Adds flag with comparison of target column with average for whole set.
     *
     * @param table String - Spark table name to read from
     * @param column String - Name of column to search
@@ -99,41 +99,34 @@ object BatchProcessing {
       // Update timer each loop.
       val t1_process = System.currentTimeMillis()
       val t1_persist = System.currentTimeMillis()
-      println(s"<< BATCH KICKOFF @ ${t1_process}ms >>\n")
 
       // Read latest raw data.
+      println(s"<< BATCH KICKOFF @ ${t1_process}ms >>\n")
       println("Raw data:")
       spark.sql("SELECT * FROM memory_raw").show()
-
-      // Process raw data.
       val outlierDF = findOutliers("memory_raw", COLUMN_TO_VALIDATE)
 
-      // If 10 seconds elapsed...
+      // When PROCESS_INTERVAL is met...
       if (t1_process - t0_process >= PROCESS_INTERVAL) {
 
         // Replace view with DF, show new data.
         outlierDF.createOrReplaceTempView("memory_processed")
         println("Processed data:")
         spark.sql("SELECT * FROM memory_processed").show()
-
-        // Restart timer from current time.
-        t0_process = t1_process
+        t0_process = t1_process // Restart timer from current time.
       }
 
-      // If 50 seconds elapsed...
+      // When PERSIST_INTERVAL is met...
       if (t1_persist - t0_persist >= PERSIST_INTERVAL) {
 
         // Replace view with DF, show new data.
         outlierDF.createOrReplaceTempView("hive_temporary")
         println("Persisted data:")
         spark.sql("SELECT * FROM hive_temporary").show()
-
-        // Restart timer from current time.
-        t0_persist = t1_persist
+        t0_persist = t1_persist // Restart timer from current time.
       }
 
-      // Delay next loop.
-      Thread.sleep(PROCESS_INTERVAL)
+      Thread.sleep(PROCESS_INTERVAL) // Delay next loop.
     }
   }
 }
