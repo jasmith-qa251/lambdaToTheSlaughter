@@ -6,7 +6,6 @@ import java.time.Instant
 import net.manub.embeddedkafka.EmbeddedKafka
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.streaming.Trigger
 import org.apache.spark.sql.types._
 
 object BatchProcessing {
