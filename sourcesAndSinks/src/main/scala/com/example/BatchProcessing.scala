@@ -3,7 +3,6 @@ package com.example
 
 import java.time.Instant
 
-import net.manub.embeddedkafka.EmbeddedKafka
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
@@ -112,46 +111,32 @@ object BatchProcessing {
       .start()
   }
 
-//  /**
-//    * Write to Kudu table.
-//    *
-//    * @param df DataFrame - Data to write
-//    * @param table String - Name of Kudu table
-//    */
-//  def writeToKuduTable(df: DataFrame, table: String): Unit = {
-//
-//    Container.kuduContext.upsertRows(df, table)
-//    println("Persisted data:")
-//    df.show()
-//  }
+  /**
+    * Write to Kudu table.
+    *
+    * @param df DataFrame - Data to write
+    * @param table String - Name of Kudu table
+    */
+  def writeToKuduTable(df: DataFrame, table: String): Unit = {
+
+    Container.kuduContext.upsertRows(df, table)
+    println("Persisted data:")
+    df.show()
+  }
 
   def main(args: Array[String]): Unit = {
 
     setCLIArgs(args)
-
-    // TODO: REMOVE ONCE CONNECTED TO DEMO.
-    // Read from JSON and write to Kafka topic.
-    EmbeddedKafka.start()
-    Container.spark
-      .read
-      .json("data.json")
-      .selectExpr("to_json(struct(*)) AS value")
-      .write
-      .format("kafka")
-      .option("kafka.bootstrap.servers", Container.KAFKA_SERVER)
-      .option("topic", KAFKA_TOPIC)
-      .save()
 
     Container.Stream.kafkaToSparkView(KAFKA_TOPIC, "memory_raw") // Read Kafka topic and write to memory table.
 
     var t0_process, t0_persist = System.currentTimeMillis() // Store initial time for determining intervals.
 
     // TODO: Set logic to stop if needed.
-    // If enough time has passed each loop, perform the batch processes.
+    // If enough time has elapsed each loop, perform the batch processes.
     while (true) {
 
-      // Update timers each loop.
-      val t1_process, t1_persist = System.currentTimeMillis()
+      val t1_process, t1_persist = System.currentTimeMillis() // Update timers each loop.
 
       // Read latest raw data.
       println(s"<< BATCH KICKOFF @ ${Instant.ofEpochMilli(t1_process).toString.dropRight(5).replace("T", " ") + "[UTC]"} >>\n")
