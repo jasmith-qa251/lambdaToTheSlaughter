@@ -1,5 +1,6 @@
 package com.example
 
+import net.manub.embeddedkafka.EmbeddedKafka
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.streaming.Trigger
 import org.apache.spark.sql.types._
@@ -53,13 +54,11 @@ object BatchProcessing {
   /**
     * Adds flag with comparison of target column with average for whole set.
     *
-    * @param table String - Spark table name to read from
+    * @param df DataFrame - Data to process
     * @param column String - Name of column to search
     * @return DataFrame
     */
-  def findOutliers(table: String, column: String): DataFrame = {
-
-    val df = spark.sql("SELECT * FROM " + table)
+  def findOutliers(df: DataFrame, column: String): DataFrame = {
 
     if (df.head(1).isEmpty) df
     else df
@@ -71,6 +70,19 @@ object BatchProcessing {
   def main(args: Array[String]): Unit = {
 
     setCLIArgs(args)
+
+    // TODO: REMOVE
+    // Read from JSON and write to Kafka topic.
+    EmbeddedKafka.start()
+    spark
+      .read
+      .json("data.json")
+      .selectExpr("to_json(struct(*)) AS value")
+      .write
+      .format("kafka")
+      .option("kafka.bootstrap.servers", SERVER)
+      .option("topic", KAFKA_TOPIC)
+      .save()
 
     // Read Kafka topic and write to memory table.
     spark
@@ -104,25 +116,18 @@ object BatchProcessing {
       println(s"<< BATCH KICKOFF @ ${t1_process}ms >>\n")
       println("Raw data:")
       spark.sql("SELECT * FROM memory_raw").show()
-      val outlierDF = findOutliers("memory_raw", COLUMN_TO_VALIDATE)
 
       // When PROCESS_INTERVAL is met...
       if (t1_process - t0_process >= PROCESS_INTERVAL) {
 
-        // Replace view with DF, show new data.
-        outlierDF.createOrReplaceTempView("memory_processed")
-        println("Processed data:")
-        spark.sql("SELECT * FROM memory_processed").show()
+        Container.BatchSparkViewToView.execute("memory_raw", "memory_processed") // Call container process.
         t0_process = t1_process // Restart timer from current time.
       }
 
       // When PERSIST_INTERVAL is met...
       if (t1_persist - t0_persist >= PERSIST_INTERVAL) {
 
-        // Replace view with DF, show new data.
-        outlierDF.createOrReplaceTempView("hive_temporary")
-        println("Persisted data:")
-        spark.sql("SELECT * FROM hive_temporary").show()
+        Container.BatchSparkViewToView.execute("memory_raw", "memory_persisted") // Call container process.
         t0_persist = t1_persist // Restart timer from current time.
       }
 
