@@ -110,7 +110,6 @@ object BatchProcessing {
       .writeStream
       .format("memory")
       .queryName(view)
-      .trigger(Trigger.ProcessingTime(1000))
       .start()
   }
 
