@@ -120,7 +120,7 @@ object BatchProcessing {
 //    */
 //  def writeToKuduTable(df: DataFrame, table: String): Unit = {
 //
-//    Container.kuduContext.insertRows(df, table)
+//    Container.kuduContext.upsertRows(df, table)
 //    println("Persisted data:")
 //    df.show()
 //  }
