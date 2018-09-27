@@ -1,14 +1,13 @@
 package com.example
 
+
 import net.manub.embeddedkafka.EmbeddedKafka
+import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.streaming.Trigger
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{DataFrame, SparkSession}
 
 object BatchProcessing {
 
-  var SERVER: String = _
   var KAFKA_TOPIC: String = _
   var COLUMN_TO_VALIDATE: String = _
   var PROCESS_INTERVAL: Long = _
@@ -16,17 +15,12 @@ object BatchProcessing {
 
   val SCHEMA = StructType(Seq(
     StructField("userid", StringType, nullable = true),
-    StructField("username", StringType, nullable =  true),
-    StructField("averageweeklyhouseholdspend", IntegerType, nullable =  true)
+    StructField("username", StringType, nullable = true),
+    StructField("averageweeklyhouseholdspend", IntegerType, nullable = true)
   ))
 
-  val spark: SparkSession = SparkSession
-    .builder()
-    .master("local[*]")
-    .appName("batch process")
-    .getOrCreate()
-  spark.sparkContext.setLogLevel("ERROR")
-  import spark.implicits._
+  Container.spark.sparkContext.setLogLevel("ERROR")
+  import Container.spark.implicits._
 
   /**
     * Sets CLI arguments to static members.
@@ -37,19 +31,26 @@ object BatchProcessing {
 
     try {
 
-      SERVER = args(0).trim
-      KAFKA_TOPIC = args(1).trim
-      COLUMN_TO_VALIDATE = args(2).trim
-      PROCESS_INTERVAL = args(3).trim.toLong
-      PERSIST_INTERVAL = args(4).trim.toLong
+      KAFKA_TOPIC = args(0).trim
+      COLUMN_TO_VALIDATE = args(1).trim
+      PROCESS_INTERVAL = args(2).trim.toLong
+      PERSIST_INTERVAL = args(3).trim.toLong
     }
     catch {
 
       case _: Throwable =>
-        println("""Usage: [server String] [kafkaTopic String] [columnToValidate String] [processInterval Long] [persistInterval Long]""")
+        println("""Usage: [kafkaTopic String] [columnToValidate String] [processInterval Long] [persistInterval Long]""")
         System.exit(1)
     }
   }
+
+  /**
+    * Read from Spark temporary view.
+    *
+    * @param view - Name of Spark view
+    * @return DataFrame
+    */
+  def readFromSparkView(view: String): DataFrame = Container.spark.sql("SELECT * FROM " + view)
 
   /**
     * Adds flag with comparison of target column with average for whole set.
@@ -67,6 +68,61 @@ object BatchProcessing {
       .drop("average")
   }
 
+  /**
+    * Transformation method used when reading JSON from Kafka.
+    *
+    * @param df DataFrame - Data containing 'value' column in JSON form.
+    * @return DataFrame
+    */
+  def selectFromJSON(df: DataFrame): DataFrame = {
+
+    df
+      .selectExpr("CAST(value as STRING) value")
+      .as[String]
+      .select(from_json(col("value"), SCHEMA).as("data")).select("data.*")
+  }
+
+  /**
+    * Write to Spark temporary view.
+    *
+    * @param df DataFrame - Data to write
+    * @param view String - Name of Spark view
+    */
+  def writeToSparkView(df: DataFrame, view: String): Unit = {
+
+    df.createOrReplaceTempView(view)
+    println(view.split("_")(1).capitalize + " data:")
+    df.show()
+  }
+
+  /**
+    * Write a streaming DataFrame to memory.
+    *
+    * @param df DataFrame - streaming Data to write.
+    * @param view String - Name of Spark view.
+    */
+  def writeStreamToSparkView(df: DataFrame, view: String): Unit = {
+
+    df
+      .writeStream
+      .format("memory")
+      .queryName(view)
+      .start()
+  }
+
+  /**
+    * Write to Kudu table.
+    *
+    * @param df DataFrame - Data to write
+    * @param table String - Name of Kudu table
+    */
+  def writeToKuduTable(df: DataFrame, table: String): Unit = {
+
+    Container.kuduContext.insertRows(df, table)
+    println("Persisted data:")
+    df.show()
+  }
+
   def main(args: Array[String]): Unit = {
 
     setCLIArgs(args)
@@ -74,32 +130,18 @@ object BatchProcessing {
     // TODO: REMOVE
     // Read from JSON and write to Kafka topic.
     EmbeddedKafka.start()
-    spark
+    Container.spark
       .read
       .json("data.json")
       .selectExpr("to_json(struct(*)) AS value")
       .write
       .format("kafka")
-      .option("kafka.bootstrap.servers", SERVER)
+      .option("kafka.bootstrap.servers", Container.KAFKA_SERVER)
       .option("topic", KAFKA_TOPIC)
       .save()
 
     // Read Kafka topic and write to memory table.
-    spark
-      .readStream
-      .format("kafka")
-      .option("kafka.bootstrap.servers", SERVER)
-      .option("subscribe", KAFKA_TOPIC)
-      .option("startingOffsets", "earliest")
-      .load()
-      .selectExpr("CAST(value as STRING) value")
-      .as[String]
-      .select(from_json(col("value"), SCHEMA).as("data")).select("data.*")
-      .writeStream
-      .format("memory")
-      .queryName("memory_raw")
-      .trigger(Trigger.ProcessingTime(1000))
-      .start()
+    Container.Stream.kafkaToSparkView(KAFKA_TOPIC, "memory_raw")
 
     // Store initial time for determining intervals.
     var t0_process = System.currentTimeMillis()
@@ -115,20 +157,20 @@ object BatchProcessing {
       // Read latest raw data.
       println(s"<< BATCH KICKOFF @ ${t1_process}ms >>\n")
       println("Raw data:")
-      spark.sql("SELECT * FROM memory_raw").show()
+      Container.spark.sql("SELECT * FROM memory_raw").show()
 
       // When PROCESS_INTERVAL is met...
       if (t1_process - t0_process >= PROCESS_INTERVAL) {
 
-        Container.BatchSparkViewToView.execute("memory_raw", "memory_processed") // Call container process.
+        Container.Batch.sparkViewToView("memory_raw", "memory_processed") // Call container process.
         t0_process = t1_process // Restart timer from current time.
       }
 
       // When PERSIST_INTERVAL is met...
       if (t1_persist - t0_persist >= PERSIST_INTERVAL) {
 
-        Container.BatchSparkViewToView.execute("memory_raw", "memory_persisted") // Call container process.
-        t0_persist = t1_persist // Restart timer from current time.
+        Container.Batch.sparkViewToKudu("memory_raw", "memory_persisted") // TODO: Replace with BatchSparkViewToKudu object.
+        t0_persist = t1_persist
       }
 
       Thread.sleep(PROCESS_INTERVAL) // Delay next loop.

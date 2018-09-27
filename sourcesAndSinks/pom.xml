@@ -127,6 +127,16 @@
             <artifactId>scalatest-embedded-kafka_2.11</artifactId>
             <version>2.0.0</version>
         </dependency>
+        <dependency>
+            <groupId>org.apache.kudu</groupId>
+            <artifactId>kudu-client</artifactId>
+            <version>1.7.1</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.kudu</groupId>
+            <artifactId>kudu-spark2_2.11</artifactId>
+            <version>1.7.1</version>
+        </dependency>
     </dependencies>
 
 </project>

@@ -1,43 +1,115 @@
 package com.example
 
+import org.apache.kudu.spark.kudu.KuduContext
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
 object Container {
 
-  object BatchSparkViewToView {
+  val spark: SparkSession = SparkSession
+    .builder()
+    .appName("Lambda demo")
+    .master("local[*]")
+    .enableHiveSupport()
+    .getOrCreate()
+
+  val KAFKA_SERVER = "localhost:6001" // TODO: Update with port.
+
+  val KUDU_MASTER = "localhost:0000" // TODO: Update with port.
+  val kuduContext: KuduContext = new KuduContext(KUDU_MASTER, spark.sparkContext)
+
+  object Batch {
+
+    /**
+      * Read from Spark view, apply method via reflection, write to Kudu table.
+      *
+      * @param sourceView String - Name of Spark temporary view source
+      * @param sinkTable String - Name of Kudu table
+      */
+    def sparkViewToKudu(sourceView: String, sinkTable: String): Unit = {
+
+      // Call read method.
+      val df = Reflections.getObjectMethodNew[DataFrame](
+        objectName = "com.example.BatchProcessing",
+        methodName = "readFromSparkView",
+        inParam = Map("view" -> sourceView)
+      )
+
+      // Call transformation method.
+      val dfMethod = Reflections.getObjectMethodNew[DataFrame](
+        objectName = "com.example.BatchProcessing",
+        methodName = "findOutliers",
+        inParam = Map("df" -> df, "column" -> BatchProcessing.COLUMN_TO_VALIDATE)
+      )
+
+      // Call write method.
+      Reflections.getObjectMethodNew[Unit](
+        objectName = "com.example.BatchProcessing",
+        methodName = "writeToKuduTable",
+        inParam = Map("df" -> dfMethod, "table" -> sinkTable)
+      )
+    }
 
     /**
       * Read from source, apply method via reflection, write to sink.
       *
-      * @param sourceView String - Name of Spark temporary view source.
-      * @param sinkView String - Name of Spark temporary view sink.
+      * @param sourceView String - Name of Spark temporary view source
+      * @param sinkView String - Name of Spark temporary view sink
       */
-    def execute(sourceView: String, sinkView: String): Unit = {
+    def sparkViewToView(sourceView: String, sinkView: String): Unit = {
 
-      // Get parameters from orchestration object.
-      val session: SparkSession = BatchProcessing.spark
-      val column: String = BatchProcessing.COLUMN_TO_VALIDATE
+      // Call read method.
+      val df = Reflections.getObjectMethodNew[DataFrame](
+        objectName = "com.example.BatchProcessing",
+        methodName = "readFromSparkView",
+        inParam = Map("view" -> sourceView)
+      )
 
-      val df = session.sql("SELECT * FROM " + sourceView)
-
-      // Call reflections method.
+      // Call transformation method.
       val dfMethod = Reflections.getObjectMethodNew[DataFrame](
         objectName = "com.example.BatchProcessing",
         methodName = "findOutliers",
-        inParam = Map("df" -> df, "column" -> column))
+        inParam = Map("df" -> df, "column" -> BatchProcessing.COLUMN_TO_VALIDATE)
+      )
 
-      // Write output to sink.
-      dfMethod.createOrReplaceTempView(sinkView)
-      println(getSuffix(sinkView).capitalize + " data:")
-      dfMethod.show()
+      // Call write method.
+      Reflections.getObjectMethodNew[Unit](
+        objectName = "com.example.BatchProcessing",
+        methodName = "writeToSparkView",
+        inParam = Map("df" -> dfMethod, "view" -> sinkView)
+      )
     }
+  }
+
+  object Stream {
 
     /**
-      * Assumes an input string of 'abc_xyz,' returns 'xyz.'
+      * Read from source, apply method via reflection, write to sink.
       *
-      * @param string String - Phrase containing '_' separator
-      * @return String
+      * @param sourceTopic String - Name of Kafka topic source
+      * @param sinkView String - Name of Spark temporary view sink
       */
-    def getSuffix(string: String): String = string.split("_")(1)
+    def kafkaToSparkView(sourceTopic: String, sinkView: String): Unit = {
+
+      // Call read method.
+      val df = Reflections.getObjectMethodNew[DataFrame](
+        objectName = "com.example.KafkaIntegration",
+        methodName = "readFromTopic",
+        inParam = Map("server" -> KAFKA_SERVER, "topic" -> BatchProcessing.KAFKA_TOPIC)
+      )
+
+      // Call transformation method.
+      val dfMethod = Reflections.getObjectMethodNew[DataFrame](
+        objectName = "com.example.BatchProcessing",
+        methodName = "selectFromJSON",
+        inParam = Map("df" -> df)
+      )
+
+      // Call write method.
+      Reflections.getObjectMethodNew[Unit](
+        objectName = "com.example.BatchProcessing",
+        methodName = "writeStreamToSparkView",
+        inParam = Map("df" -> dfMethod, "view" -> sinkView)
+      )
+    }
   }
 }
