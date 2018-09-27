@@ -1,9 +1,12 @@
 package com.example
 
 
+import java.time.Instant
+
 import net.manub.embeddedkafka.EmbeddedKafka
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions._
+import org.apache.spark.sql.streaming.Trigger
 import org.apache.spark.sql.types._
 
 object BatchProcessing {
@@ -64,7 +67,7 @@ object BatchProcessing {
     if (df.head(1).isEmpty) df
     else df
       .withColumn("average", lit(df.agg(avg(column)).head.getDouble(0)))
-      .withColumn("outlier_flag", when(col(column) >= col("average"), "Above Average").otherwise("Below Average"))
+      .withColumn("is_above_average", when(col(column) >= col("average"), "yes").otherwise("no"))
       .drop("average")
   }
 
@@ -107,27 +110,28 @@ object BatchProcessing {
       .writeStream
       .format("memory")
       .queryName(view)
+      .trigger(Trigger.ProcessingTime(1000))
       .start()
   }
 
-  /**
-    * Write to Kudu table.
-    *
-    * @param df DataFrame - Data to write
-    * @param table String - Name of Kudu table
-    */
-  def writeToKuduTable(df: DataFrame, table: String): Unit = {
-
-    Container.kuduContext.insertRows(df, table)
-    println("Persisted data:")
-    df.show()
-  }
+//  /**
+//    * Write to Kudu table.
+//    *
+//    * @param df DataFrame - Data to write
+//    * @param table String - Name of Kudu table
+//    */
+//  def writeToKuduTable(df: DataFrame, table: String): Unit = {
+//
+//    Container.kuduContext.insertRows(df, table)
+//    println("Persisted data:")
+//    df.show()
+//  }
 
   def main(args: Array[String]): Unit = {
 
     setCLIArgs(args)
 
-    // TODO: REMOVE
+    // TODO: REMOVE ONCE CONNECTED TO DEMO.
     // Read from JSON and write to Kafka topic.
     EmbeddedKafka.start()
     Container.spark
@@ -140,36 +144,33 @@ object BatchProcessing {
       .option("topic", KAFKA_TOPIC)
       .save()
 
-    // Read Kafka topic and write to memory table.
-    Container.Stream.kafkaToSparkView(KAFKA_TOPIC, "memory_raw")
+    Container.Stream.kafkaToSparkView(KAFKA_TOPIC, "memory_raw") // Read Kafka topic and write to memory table.
 
-    // Store initial time for determining intervals.
-    var t0_process = System.currentTimeMillis()
-    var t0_persist = System.currentTimeMillis()
-    val continue = true // TODO: Set logic to stop if needed.
+    var t0_process, t0_persist = System.currentTimeMillis() // Store initial time for determining intervals.
 
-    while (continue) {
+    // TODO: Set logic to stop if needed.
+    // If enough time has passed each loop, perform the batch processes.
+    while (true) {
 
-      // Update timer each loop.
-      val t1_process = System.currentTimeMillis()
-      val t1_persist = System.currentTimeMillis()
+      // Update timers each loop.
+      val t1_process, t1_persist = System.currentTimeMillis()
 
       // Read latest raw data.
-      println(s"<< BATCH KICKOFF @ ${t1_process}ms >>\n")
+      println(s"<< BATCH KICKOFF @ ${Instant.ofEpochMilli(t1_process).toString.dropRight(5).replace("T", " ") + "[UTC]"} >>\n")
       println("Raw data:")
       Container.spark.sql("SELECT * FROM memory_raw").show()
 
-      // When PROCESS_INTERVAL is met...
+      // When time elapsed reaches PROCESS_INTERVAL...
       if (t1_process - t0_process >= PROCESS_INTERVAL) {
 
         Container.Batch.sparkViewToView("memory_raw", "memory_processed") // Call container process.
-        t0_process = t1_process // Restart timer from current time.
+        t0_process = t1_process // Reset timer.
       }
 
-      // When PERSIST_INTERVAL is met...
+      // When time elapsed reaches PERSIST_INTERVAL...
       if (t1_persist - t0_persist >= PERSIST_INTERVAL) {
 
-        Container.Batch.sparkViewToKudu("memory_raw", "memory_persisted") // TODO: Replace with BatchSparkViewToKudu object.
+        Container.Batch.sparkViewToView("memory_raw", "memory_persisted") // TODO: Replace with sparkViewToKudu method.
         t0_persist = t1_persist
       }
 
