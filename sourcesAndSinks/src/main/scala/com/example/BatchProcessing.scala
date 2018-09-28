@@ -146,14 +146,14 @@ object BatchProcessing {
       // When time elapsed reaches PROCESS_INTERVAL...
       if (t1_process - t0_process >= PROCESS_INTERVAL) {
 
-        Container.Batch.sparkViewToView("memory_raw", "memory_processed") // Call container process.
-        t0_process = t1_process // Reset timer.
+        Container.Batch.sparkViewToView("memory_raw", "memory_processed")
+        t0_process = t1_process
       }
 
       // When time elapsed reaches PERSIST_INTERVAL...
       if (t1_persist - t0_persist >= PERSIST_INTERVAL) {
 
-        Container.Batch.sparkViewToView("memory_raw", "memory_persisted") // TODO: Replace with sparkViewToKudu method.
+        Container.Batch.sparkViewToKudu("memory_raw", "kudu_persisted") // Requires that this table exists.
         t0_persist = t1_persist
       }
 
