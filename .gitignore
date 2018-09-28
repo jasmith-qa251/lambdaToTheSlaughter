@@ -2,3 +2,7 @@
 *.log
 .idea/
 *.iml
+spark-warehouse/
+sourcesAndSinks/target
+checkpointDir/
+metastore_db/
