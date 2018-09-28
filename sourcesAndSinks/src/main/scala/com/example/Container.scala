@@ -12,9 +12,9 @@ object Container {
     .enableHiveSupport()
     .getOrCreate()
 
-  val KAFKA_SERVER = "localhost:6001" // TODO: Update with port.
+  val KAFKA_SERVER = "localhost:6001"
 
-  val KUDU_MASTER = "localhost:0000" // TODO: Update with port.
+  val KUDU_MASTER = "localhost:7051"
   val kuduContext: KuduContext = new KuduContext(KUDU_MASTER, spark.sparkContext)
 
   object Batch {
