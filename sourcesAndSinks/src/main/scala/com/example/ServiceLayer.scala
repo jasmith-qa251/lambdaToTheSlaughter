@@ -81,7 +81,10 @@ object ServiceLayer {
     println("Stream Output Data")
     stream_output.show()
 
-    val df_final = stream_output.union(dfkudu)
+    val newdf = stream_output.select("userid","username", "averageweeklyhouseholdspend", "is_above_average" )
+    val newdf2 = dfkudu.select("userid","username", "averageweeklyhouseholdspend", "is_above_average")
+
+    val df_final = newdf.union(newdf2)
     println("final data")
     df_final.show()
 
