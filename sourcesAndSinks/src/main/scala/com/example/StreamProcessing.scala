@@ -19,6 +19,9 @@ object StreamProcessing {
   val HIVE_DB = "default"
   val HIVE_TABLE = "household_weekly_spend"
   val VALUE_COL_NAME = "averageweeklyhouseholdspend"
+  val FLAG_COL_NAME = "is_above_average"
+  val YES = "yes"
+  val NO = "no"
   //configuration for kafka and hive(Note:this will be replaced by kudu) end
 
   val SCHEMA_IN = StructType(Seq(
@@ -30,7 +33,7 @@ object StreamProcessing {
     StructField("userid", StringType, nullable = true),
     StructField("username", StringType, nullable = true),
     StructField("averageweeklyhouseholdspend", IntegerType, nullable = true),
-    StructField("flag_above_avg", StringType, nullable = true)
+    StructField(FLAG_COL_NAME, StringType, nullable = true)
   ))
 
   /**
@@ -58,8 +61,8 @@ object StreamProcessing {
     * @return
     */
   def streamProcessMethod(inDf: DataFrame, thresholdValue: Double, colName: String): DataFrame = {
-    inDf.withColumn("flag_above_avg",
-      when(col(colName).isNotNull and col(colName) >= thresholdValue, "Y").otherwise("N"))
+    inDf.withColumn(FLAG_COL_NAME,
+      when(col(colName).isNotNull and col(colName) >= thresholdValue, YES).otherwise(NO))
   }
 
   /**
