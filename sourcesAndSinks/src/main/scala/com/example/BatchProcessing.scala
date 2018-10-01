@@ -17,7 +17,7 @@ object BatchProcessing {
   val SCHEMA = StructType(Seq(
     StructField("userid", StringType, nullable = true),
     StructField("username", StringType, nullable = true),
-    StructField("averageweeklyhouseholdspend", IntegerType, nullable = true)
+    StructField("averageweeklyhouseholdspend", LongType, nullable = true)
   ))
 
   Container.spark.sparkContext.setLogLevel("ERROR")
@@ -153,7 +153,7 @@ object BatchProcessing {
       // When time elapsed reaches PERSIST_INTERVAL...
       if (t1_persist - t0_persist >= PERSIST_INTERVAL) {
 
-        Container.Batch.sparkViewToKudu("memory_raw", "kudu_persisted") // Requires that this table exists.
+        Container.Batch.sparkViewToKudu("memory_raw", "test_table") // Requires that this table exists.
         t0_persist = t1_persist
       }
 

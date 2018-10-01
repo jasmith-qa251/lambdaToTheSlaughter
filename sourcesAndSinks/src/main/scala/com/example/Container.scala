@@ -12,7 +12,7 @@ object Container {
     .enableHiveSupport()
     .getOrCreate()
 
-  val KAFKA_SERVER = "localhost:6001"
+  val KAFKA_SERVER = "localhost:9092"
 
   val KUDU_MASTER = "localhost:7051"
   val kuduContext: KuduContext = new KuduContext(KUDU_MASTER, spark.sparkContext)
