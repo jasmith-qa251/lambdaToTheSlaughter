@@ -14,6 +14,7 @@ import org.apache.spark.sql.types.Metadata;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 
+
 import java.time.Duration;
 import java.time.LocalTime;
 
@@ -81,7 +82,7 @@ public class EventStreaming {
                     System.out.println("Approximate Running Time: " + duration.toHours() + " hour(s).");
                     System.out.println("Wow, this is one in-depth demonstration session...");
                 }
-                final Dataset<Row> df = spark.createDataFrame(RecordResources.getInitialiseData(intMaxRecordsPerBatch,2),structType); // RecordResources.getInitialiseData(intMaxRecordsPerBatch, 2),structType);
+                final Dataset<Row> df = spark.createDataFrame(RecordResources.getInitialiseData(intMaxRecordsPerBatch,2),structType);//RecordResources.getInitialiseData(intMaxRecordsPerBatch,2),structType); // RecordResources.getInitialiseData(intMaxRecordsPerBatch, 2),structType);
                 System.out.println("Generated Record(s) Sent to Kafka Topic: " + topic + "...");
                 df
                         .selectExpr("CAST(userid AS INTEGER)", "to_json(struct(*)) AS value")
