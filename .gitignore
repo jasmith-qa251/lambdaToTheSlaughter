@@ -3,6 +3,6 @@
 .idea/
 *.iml
 spark-warehouse/
-sourcesAndSinks/target
+sourcesAndSinks/target/*.*
 checkpointDir/
 metastore_db/

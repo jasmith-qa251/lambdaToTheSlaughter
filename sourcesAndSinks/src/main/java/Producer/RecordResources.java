@@ -15,7 +15,7 @@ public class RecordResources {
                 "Chloe", "Daisy", "Alice", "Ivy", "Darcie", "Sienna", "Harper", "Hannah", "Ruby", "Scarlett",
                 "Maya", "Jessica", "Layla", "Matilda", "Willow", "Eva", "Emma", "Erin", "Florence", "Molly",
                 "Rosie", "Millie", "Emilia", "Mila", "Esme", "Elsie", "Maisie", "Ellie", "Lucy", "Thea",
-                "Zoe", "Nur", "Imogen", "Luna0", "Lola", "Zara", "Maryam", "Bella", "Holly", "Annabelle",
+                "Zoe", "Nur", "Imogen", "Luna", "Lola", "Zara", "Maryam", "Bella", "Holly", "Annabelle",
                 "Eleanor", "Eliza", "Amber", "Abigail", "Lyla", "Penelope", "Niamh", "Madison", "Violet", "Fatima",
                 "Georgia", "Sarah", "Elizabeth", "Amelie", "Jasmine", "Harriet", "Rose", "Lexi", "Nancy", "Anna",
                 "Amy", "Leah", "Summer", "Muhammad", "Oliver", "Harry", "Jack", "George", "Noah", "Leo",
