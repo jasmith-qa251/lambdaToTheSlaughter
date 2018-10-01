@@ -6,22 +6,15 @@ import org.apache.spark.sql.{DataFrame, SparkSession, functions}
 
 object KafkaIntegration{
 
-  def readFromTopic(schema: StructType, checkpointDir: String) : DataFrame = {
-    val spark = SparkSession.builder().getOrCreate()
+  def readFromTopic(server: String, topic: String) : DataFrame = {
 
-    import spark.implicits._
-
-    val df = spark.readStream
+    Container.spark
+      .readStream
       .format("kafka")
-      .option("kafka.bootstrap.servers", "localhost:9092")
-      .option("subscribe", "test")
-      //.option("checkpointLocation", checkpointDir)
+      .option("kafka.bootstrap.servers", server)
+      .option("subscribe", topic)
+      .option("startingOffsets", "earliest")
       .load()
-
-
-    df.selectExpr("CAST(value as STRING)")
-      .as[String]
-      .select(functions.from_json($"value", schema).as("data")).select("data.*")
   }
 
   def writeToTopic(streamDF:DataFrame, topic:String, checkpointDir:String): StreamingQuery = {
