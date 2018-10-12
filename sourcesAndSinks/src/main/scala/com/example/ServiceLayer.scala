@@ -2,21 +2,12 @@ package com.example
 
 import java.util.Properties
 
-import org.apache.spark.sql.streaming.StreamingQuery
-import org.apache.spark.sql.types.StructType
-import org.apache.spark.sql.{DataFrame, SparkSession, functions}
-import breeze.util.partition
 import org.apache.kafka.clients.consumer.KafkaConsumer
 import org.apache.kafka.common.serialization.StringDeserializer
-import org.apache.spark.sql.streaming.{OutputMode, Trigger}
-import org.apache.spark.sql.{Row, SparkSession, functions}
-import org.apache.spark.sql.types._
 import org.apache.kudu.spark.kudu._
-import org.apache.kudu.client._
-import org.apache.spark
-import collection.JavaConverters._
-import org.apache.spark.sql.types._
-import org.apache.spark.sql._
+import org.apache.spark.sql.functions.lit
+import org.apache.spark.sql.types.{StructType, _}
+import org.apache.spark.sql.{SparkSession, functions}
 
 
 
@@ -49,7 +40,7 @@ object ServiceLayer {
       .read
       .format("kafka")
       .option("kafka.bootstrap.servers", "localhost:9092")
-      .option("subscribe", "test2")
+      .option("subscribe", "testOut_topic")
       .load()
     df.printSchema()
 
@@ -68,10 +59,10 @@ object ServiceLayer {
     val dfkudu = spark.read.options(Map("kudu.master" -> "localhost:7051", "kudu.table" -> "test_table")).kudu
 
     println("Kafka Data")
-    dfkafka.show()
+    dfkafka.show()//withColumn("Source", lit("kafka")).show()
 
     println("Kudu Data")
-    dfkudu.show()
+    dfkudu.show()//withColumn("Source", lit("kudu")).show()
 
     val stream_output = dfkafka.join(dfkudu, dfkafka.col("userid")=== dfkudu.col("userid"), "leftanti")
 
@@ -81,12 +72,13 @@ object ServiceLayer {
     println("Stream Output Data")
     stream_output.show()
 
-    val newdf = stream_output.select("userid","username", "averageweeklyhouseholdspend", "is_above_average" )
-    val newdf2 = dfkudu.select("userid","username", "averageweeklyhouseholdspend", "is_above_average")
+    val newdf = stream_output.select("userid","username", "averageweeklyhouseholdspend", "is_above_average" ).withColumn("Source", lit("kafka"))
+    val newdf2 = dfkudu.select("userid","username", "averageweeklyhouseholdspend", "is_above_average").withColumn("Source", lit("kudu"))
 
     val df_final = newdf.union(newdf2)
     println("final data")
     df_final.show()
+
 
   }
 }
