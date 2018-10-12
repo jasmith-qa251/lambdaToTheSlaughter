@@ -1,17 +1,26 @@
 package com.example
 
 
+import java.io.File
+
 import org.apache.spark.sql.functions.{avg, col, when}
 import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructType}
 import org.apache.spark.sql.{DataFrame, SparkSession, functions}
+import org.apache.spark.sql.streaming.{OutputMode, Trigger}
+
+import scala.concurrent.duration._
+import scala.reflect.io.Directory
+
+
 
 object StreamProcessing {
   val spark: SparkSession = SparkSession
     .builder()
     .master("local[*]")
-    .appName("parkProducerDemoAverage")
-    .getOrCreate()
-  spark.sparkContext.setLogLevel("WARN")
+    .appName("parkProducerDemoAverage").getOrCreate()
+
+    spark.sparkContext.setLogLevel("WARN")
+
   //configuration for kafka and hive(Note:this will be replaced by kudu) start
   val SERVER = "localhost:9092"
   val TOPIC_IN = "streaming-demo-averageweeklyhouseholdspend"
@@ -74,6 +83,12 @@ object StreamProcessing {
     import spark.implicits._
 
     //Todo Delete
+    println("Before clean-up checkpoint directory")
+    val directory = new Directory(new File("tmp/checkpoint/"))
+    directory.deleteRecursively()
+    println("After clean-up checkpoint directory")
+
+
     // create a hive table by reading the data from Json start
     val dfHive = spark.read.json("HiveTable.json")
     dfHive.write.mode("Overwrite") saveAsTable (HIVE_DB + "." + HIVE_TABLE)
@@ -88,6 +103,7 @@ object StreamProcessing {
       .option("kafka.bootstrap.servers", SERVER)
       .option("subscribe", TOPIC_IN)
       .option("startingOffsets", "earliest")
+      .option("failOnDataLoss",false)
       .load()
 
     //Apply schema for input streamDataframe
@@ -103,8 +119,12 @@ object StreamProcessing {
     //Apply the processing method
     val dfProcessed = streamProcessMethod(dfNewTemp, avg(0).toDouble, VALUE_COL_NAME)
 
+    val displayQuery = dfProcessed.writeStream.format("console").option("checkpointLocation", "tmp/checkpoint"). // <-- checkpoint directory
+      trigger(Trigger.ProcessingTime(10.seconds)).
+      outputMode(OutputMode.Update())
+      .start()
     //Write to kafka topic_out
-    dfProcessed
+    val writeQuery = dfProcessed
       .selectExpr("CAST(userid as STRING) AS key", "to_json(struct(*)) AS value")
       //.write
       .writeStream
@@ -113,7 +133,10 @@ object StreamProcessing {
       .option("kafka.bootstrap.servers", SERVER)
       .option("checkpointLocation", "checkpointDir")
       .option("auto.offset.reset", "earliest")
-      .start().awaitTermination()
+      .start()
+    //displayQuery.awaitTermination()
+    writeQuery.awaitTermination()
+    displayQuery.awaitTermination()
     //Todo delete end
   }
 
